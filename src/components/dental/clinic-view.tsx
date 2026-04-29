@@ -76,7 +76,8 @@ export default function ClinicView() {
     }
   }, [selectedPatientId, fetchPatients]);
 
-  // Get scheduled patients from appointments
+  // Get scheduled patients from appointments — sorted by closest upcoming appointment
+  const todayStr = new Date().toISOString().split('T')[0];
   const scheduledPatients = appointments
     .filter(a => a.status === 'scheduled' || a.status === 'in-progress')
     .reduce((acc: any[], apt) => {
@@ -84,12 +85,46 @@ export default function ClinicView() {
         acc.push(apt);
       }
       return acc;
-    }, []);
+    }, [])
+    .sort((a, b) => {
+      // Sort by date first, then by time
+      if (a.date !== b.date) {
+        // Appointments today or future come first
+        const aFuture = a.date >= todayStr ? 0 : 1;
+        const bFuture = b.date >= todayStr ? 0 : 1;
+        if (aFuture !== bFuture) return aFuture - bFuture;
+        return a.date.localeCompare(b.date);
+      }
+      return a.time.localeCompare(b.time);
+    });
 
-  const filteredPatients = patients.filter(p =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.telephone.includes(searchQuery)
-  );
+  // Sort all patients by closest upcoming appointment
+  const patientNextAppointment: Record<string, { date: string; time: string } | null> = {};
+  patients.forEach(p => {
+    const upcomingApts = appointments
+      .filter(a => a.patientId === p.id && (a.status === 'scheduled' || a.status === 'in-progress') && a.date >= todayStr)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+    patientNextAppointment[p.id] = upcomingApts.length > 0 ? { date: upcomingApts[0].date, time: upcomingApts[0].time } : null;
+  });
+
+  const filteredPatients = patients
+    .filter(p =>
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.telephone.includes(searchQuery)
+    )
+    .sort((a, b) => {
+      // Patients with upcoming appointments come first, sorted by closest
+      const aNext = patientNextAppointment[a.id];
+      const bNext = patientNextAppointment[b.id];
+      if (aNext && !bNext) return -1;
+      if (!aNext && bNext) return 1;
+      if (aNext && bNext) {
+        if (aNext.date !== bNext.date) return aNext.date.localeCompare(bNext.date);
+        return aNext.time.localeCompare(bNext.time);
+      }
+      // Both without appointments — sort by name
+      return a.name.localeCompare(b.name);
+    });
 
   // Calculate totals grouped by currency
   const feeByCurrency: Record<string, number> = {};
@@ -417,7 +452,12 @@ export default function ClinicView() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-gray-900">{patient.name}</p>
-                    <p className="text-xs text-gray-500">{patient.gender} &bull; DOB: {patient.dateOfBirth} &bull; {patient.telephone}</p>
+                    <p className="text-xs text-gray-500">
+                      {patient.gender} &bull; DOB: {patient.dateOfBirth} &bull; {patient.telephone}
+                      {patientNextAppointment[patient.id] && (
+                        <span className="text-emerald-600 ml-1">&bull; Next: {patientNextAppointment[patient.id]!.date} at {patientNextAppointment[patient.id]!.time}</span>
+                      )}
+                    </p>
                   </div>
                   <ChevronDown className="w-4 h-4 text-gray-400 rotate-[-90deg]" />
                 </button>

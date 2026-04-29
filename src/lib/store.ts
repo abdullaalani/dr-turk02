@@ -93,12 +93,12 @@ interface AppState {
   discounts: DiscountSetting[];
   
   // UI State
-  activeTab: 'reception' | 'schedule' | 'clinic' | 'summary' | 'settings';
+  activeTab: 'schedule' | 'clinic' | 'summary' | 'settings';
   selectedPatientId: string | null;
   isLoading: boolean;
   
   // Actions
-  setActiveTab: (tab: 'reception' | 'schedule' | 'clinic' | 'summary' | 'settings') => void;
+  setActiveTab: (tab: 'schedule' | 'clinic' | 'summary' | 'settings') => void;
   setSelectedPatientId: (id: string | null) => void;
   setIsLoading: (loading: boolean) => void;
   
@@ -126,7 +126,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   appointments: [],
   procedures: [],
   discounts: [],
-  activeTab: 'reception',
+  activeTab: 'schedule',
   selectedPatientId: null,
   isLoading: false,
   

@@ -12,7 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Settings, DollarSign, Percent, Edit2, Trash2, Plus,
-  Check, X, Calendar, Tag, FlaskConical
+  Check, X, Calendar, Tag, FlaskConical, Lock, BarChart3, Stethoscope
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -30,7 +30,22 @@ function formatPrice(amount: number, currency: string): string {
   return `${symbol}${amount.toFixed(2)}`;
 }
 
-export default function SettingsView() {
+const LOCKABLE_TABS = ['schedule', 'clinic', 'summary', 'settings'] as const;
+type LockableTab = typeof LOCKABLE_TABS[number];
+
+const TAB_LABELS: Record<LockableTab, { label: string; icon: React.ReactNode }> = {
+  schedule: { label: 'Schedule', icon: <Calendar className="w-4 h-4" /> },
+  clinic: { label: 'Clinic', icon: <Stethoscope className="w-4 h-4" /> },
+  summary: { label: 'Summary', icon: <BarChart3 className="w-4 h-4" /> },
+  settings: { label: 'Settings', icon: <Settings className="w-4 h-4" /> },
+};
+
+interface SettingsViewProps {
+  tabPasswords: Record<LockableTab, string | null>;
+  onPasswordsChange: (pw: Record<LockableTab, string | null>) => void;
+}
+
+export default function SettingsView({ tabPasswords, onPasswordsChange }: SettingsViewProps) {
   const { procedures, discounts, fetchProcedures, fetchDiscounts } = useAppStore();
   const { toast } = useToast();
 
@@ -40,6 +55,12 @@ export default function SettingsView() {
   const [editCurrency, setEditCurrency] = useState('USD');
   const [discountForm, setDiscountForm] = useState({ percentage: '', startDate: '', endDate: '' });
   const [isAddingDiscount, setIsAddingDiscount] = useState(false);
+
+  // Password management state
+  const [passwordTab, setPasswordTab] = useState<LockableTab | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
 
   // Group procedures by category
   const proceduresByCategory = procedures.reduce((acc, proc) => {
@@ -134,6 +155,34 @@ export default function SettingsView() {
 
   const now = new Date().toISOString().split('T')[0];
 
+  const handleSetPassword = (tab: LockableTab) => {
+    if (!newPassword) {
+      setPasswordError('Password cannot be empty');
+      return;
+    }
+    if (newPassword.length < 4) {
+      setPasswordError('Password must be at least 4 characters');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Passwords do not match');
+      return;
+    }
+    const updated = { ...tabPasswords, [tab]: newPassword };
+    onPasswordsChange(updated);
+    setPasswordTab(null);
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordError('');
+    toast({ title: 'Success', description: `Password set for ${TAB_LABELS[tab].label}` });
+  };
+
+  const handleRemovePassword = (tab: LockableTab) => {
+    const updated = { ...tabPasswords, [tab]: null };
+    onPasswordsChange(updated);
+    toast({ title: 'Success', description: `Password removed from ${TAB_LABELS[tab].label}` });
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -141,8 +190,118 @@ export default function SettingsView() {
           <Settings className="w-7 h-7 text-gray-600" />
           Settings
         </h2>
-        <p className="text-gray-500 text-sm mt-1">Manage procedure prices, currencies, lab costs, and discount periods</p>
+        <p className="text-gray-500 text-sm mt-1">Manage passwords, procedure prices, currencies, lab costs, and discount periods</p>
       </div>
+
+      {/* Password Lock Section */}
+      <Card className="border-blue-200">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Lock className="w-5 h-5 text-blue-600" />
+            Section Password Locks
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-gray-500">
+            Optionally protect sections with a password. When set, users must enter the password before accessing that section. Each section can have its own separate password.
+          </p>
+
+          <div className="space-y-2">
+            {LOCKABLE_TABS.map((tab) => {
+              const hasPassword = !!tabPasswords[tab];
+              const isEditing = passwordTab === tab;
+              const tabInfo = TAB_LABELS[tab];
+
+              return (
+                <div
+                  key={tab}
+                  className={`flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 rounded-lg border transition-colors ${
+                    hasPassword ? 'bg-amber-50/50 border-amber-200' : 'bg-gray-50 border-gray-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 mb-2 sm:mb-0">
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center ${
+                      hasPassword ? 'bg-amber-200 text-amber-700' : 'bg-gray-200 text-gray-500'
+                    }`}>
+                      {tabInfo.icon}
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm text-gray-900 flex items-center gap-2">
+                        {tabInfo.label}
+                        {hasPassword && (
+                          <Badge className="bg-amber-100 text-amber-700 text-[10px] gap-1">
+                            <Lock className="w-2.5 h-2.5" /> Protected
+                          </Badge>
+                        )}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {hasPassword ? 'Password required to access' : 'No password set'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {isEditing ? (
+                    <div className="w-full sm:w-auto space-y-2">
+                      <div className="flex gap-2">
+                        <Input
+                          type="password"
+                          placeholder="New password"
+                          value={newPassword}
+                          onChange={(e) => { setNewPassword(e.target.value); setPasswordError(''); }}
+                          className="h-8 text-sm w-32"
+                        />
+                        <Input
+                          type="password"
+                          placeholder="Confirm"
+                          value={confirmPassword}
+                          onChange={(e) => { setConfirmPassword(e.target.value); setPasswordError(''); }}
+                          className="h-8 text-sm w-32"
+                        />
+                      </div>
+                      {passwordError && <p className="text-red-500 text-xs">{passwordError}</p>}
+                      <div className="flex gap-1">
+                        <Button size="sm" className="h-7 bg-emerald-600 hover:bg-emerald-700 text-white text-xs" onClick={() => handleSetPassword(tab)}>
+                          <Check className="w-3 h-3 mr-1" /> Save
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setPasswordTab(null); setNewPassword(''); setConfirmPassword(''); setPasswordError(''); }}>
+                          <X className="w-3 h-3 mr-1" /> Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs gap-1"
+                        onClick={() => {
+                          setPasswordTab(tab);
+                          setNewPassword('');
+                          setConfirmPassword('');
+                          setPasswordError('');
+                        }}
+                      >
+                        {hasPassword ? <Edit2 className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+                        {hasPassword ? 'Change' : 'Set Password'}
+                      </Button>
+                      {hasPassword && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs text-red-500 hover:text-red-700"
+                          onClick={() => handleRemovePassword(tab)}
+                        >
+                          <Trash2 className="w-3 h-3 mr-1" /> Remove
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Discount Management */}
       <Card className="border-amber-200">
