@@ -1,0 +1,103 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Patient {
+  id           String          @id @default(cuid())
+  name         String
+  dateOfBirth  String
+  gender       String
+  telephone    String
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  appointments Appointment[]
+  procedures   ToothProcedure[]
+  payments     Payment[]
+  images       PatientImage[]
+  labExpenses  LabExpense[]
+}
+
+model Appointment {
+  id        String   @id @default(cuid())
+  patientId String
+  date      String
+  time      String
+  duration  Int      @default(30)
+  status    String   @default("scheduled")
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+}
+
+model Procedure {
+  id         String           @id @default(cuid())
+  name       String
+  category   String
+  price      Float
+  labCost    Float            @default(0)
+  currency   String           @default("USD")
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  toothProcedures ToothProcedure[]
+}
+
+model ToothProcedure {
+  id             String     @id @default(cuid())
+  patientId      String
+  toothNumber    String
+  toothType      String     @default("permanent")
+  customToothName String?
+  procedureId    String
+  paid           Boolean    @default(false)
+  completed      Boolean    @default(false)
+  notes          String?
+  createdAt      DateTime   @default(now())
+  patient        Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  procedure      Procedure  @relation(fields: [procedureId], references: [id])
+}
+
+model Payment {
+  id        String   @id @default(cuid())
+  patientId String
+  amount    Float
+  date      String
+  method    String   @default("cash")
+  note      String?
+  createdAt DateTime @default(now())
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+}
+
+model DiscountSetting {
+  id          String   @id @default(cuid())
+  percentage  Float
+  startDate   String
+  endDate     String
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model PatientImage {
+  id        String   @id @default(cuid())
+  patientId String
+  imagePath String
+  imageType String  @default("panoramic")
+  createdAt DateTime @default(now())
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+}
+
+model LabExpense {
+  id          String   @id @default(cuid())
+  patientId   String
+  description String
+  amount      Float
+  date        String
+  createdAt   DateTime @default(now())
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+}
