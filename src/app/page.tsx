@@ -2,12 +2,13 @@
 
 import React, { useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
+import { useSession, signOut } from 'next-auth/react';
 import WeeklySchedule from '@/components/dental/weekly-schedule';
 import ClinicView from '@/components/dental/clinic-view';
 import DailySummary from '@/components/dental/daily-summary';
 import SettingsView from '@/components/dental/settings-view';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Calendar, Stethoscope, Settings, BarChart3, Lock, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { Calendar, Stethoscope, Settings, BarChart3, Lock, Eye, EyeOff, ShieldCheck, LogOut, UserCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -49,7 +50,20 @@ function saveUnlockedTabs(tabs: Set<LockableTab>) {
   sessionStorage.setItem('unlocked-tabs', JSON.stringify([...tabs]));
 }
 
+const ROLE_LABELS: Record<string, string> = {
+  admin: 'Administrator',
+  dentist: 'Dentist',
+  assistant: 'Assistant',
+};
+
+const ROLE_COLORS: Record<string, string> = {
+  admin: 'bg-emerald-100 text-emerald-700',
+  dentist: 'bg-blue-100 text-blue-700',
+  assistant: 'bg-gray-100 text-gray-700',
+};
+
 export default function Home() {
+  const { data: session, status } = useSession();
   const { activeTab, setActiveTab, fetchPatients, fetchAppointments, fetchProcedures, fetchDiscounts, patients, appointments, procedures, discounts } = useAppStore();
 
   const [tabPasswords, setTabPasswords] = useState<Record<LockableTab, string | null>>({ schedule: null, clinic: null, summary: null, settings: null });
@@ -142,6 +156,30 @@ export default function Home() {
                 <div className="w-2 h-2 rounded-full bg-amber-500" />
                 <span>{stats.totalProcedures} procedures</span>
               </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {session?.user && (
+                <div className="flex items-center gap-2">
+                  <div className="hidden sm:flex flex-col items-end">
+                    <span className="text-xs font-medium text-gray-700">{session.user.name}</span>
+                    <span className={`text-[10px] px-1.5 py-0 rounded ${ROLE_COLORS[(session.user as any).role] || ROLE_COLORS.assistant}`}>
+                      {ROLE_LABELS[(session.user as any).role] || (session.user as any).role}
+                    </span>
+                  </div>
+                  <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
+                    <UserCircle className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => signOut({ callbackUrl: '/login' })}
+                    className="text-gray-400 hover:text-red-500 gap-1"
+                    title="Sign out"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         </div>

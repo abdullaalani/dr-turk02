@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { createLabExpenseSchema } from '@/lib/validations';
 
 export async function GET(request: NextRequest) {
   try {
@@ -38,17 +39,20 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { patientId, description, amount, date } = body;
-
-    if (!patientId || !description || !amount || !date) {
-      return NextResponse.json({ error: 'Patient, description, amount, and date are required' }, { status: 400 });
+    const result = createLabExpenseSchema.safeParse(body);
+    if (!result.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: result.error.flatten().fieldErrors },
+        { status: 400 }
+      );
     }
+    const { patientId, description, amount, date } = result.data;
 
     const expense = await db.labExpense.create({
       data: {
         patientId,
         description,
-        amount: parseFloat(amount),
+        amount,
         date,
       },
       include: { patient: true },

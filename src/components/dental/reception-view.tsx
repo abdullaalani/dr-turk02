@@ -11,8 +11,18 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { 
   CalendarPlus, UserPlus, Clock, Trash2, User, Phone, 
-  Calendar, Stethoscope, CheckCircle2, AlertCircle 
+  Calendar, Stethoscope, CheckCircle2, AlertCircle, AlertTriangle 
 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 
 export default function ReceptionView() {
@@ -23,6 +33,11 @@ export default function ReceptionView() {
   const [newPatient, setNewPatient] = useState({ name: '', dateOfBirth: '', gender: '', telephone: '' });
   const [appointmentForm, setAppointmentForm] = useState({ patientId: '', date: '', time: '', duration: 30, notes: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Appointment conflict dialog state
+  const [showConflictDialog, setShowConflictDialog] = useState(false);
+  const [conflictInfo, setConflictInfo] = useState<any[]>([]);
+  const [pendingAppointment, setPendingAppointment] = useState<any>(null);
 
   const handleCreatePatient = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,6 +86,11 @@ export default function ReceptionView() {
         addAppointment(appointment);
         setAppointmentForm({ patientId: '', date: '', time: '', duration: 30, notes: '' });
         toast({ title: 'Success', description: 'Appointment scheduled successfully' });
+      } else if (res.status === 409) {
+        const error = await res.json();
+        setConflictInfo(error.conflicts || []);
+        setPendingAppointment(appointmentForm);
+        setShowConflictDialog(true);
       } else {
         const error = await res.json();
         toast({ title: 'Error', description: error.error, variant: 'destructive' });
@@ -79,6 +99,33 @@ export default function ReceptionView() {
       toast({ title: 'Error', description: 'Failed to create appointment', variant: 'destructive' });
     }
     setIsSubmitting(false);
+  };
+
+  const handleForceCreateAppointment = async () => {
+    if (!pendingAppointment) return;
+    setShowConflictDialog(false);
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...pendingAppointment, forceCreate: true }),
+      });
+      if (res.ok) {
+        const appointment = await res.json();
+        addAppointment(appointment);
+        setAppointmentForm({ patientId: '', date: '', time: '', duration: 30, notes: '' });
+        toast({ title: 'Success', description: 'Appointment created (overlapping)' });
+      } else {
+        const error = await res.json();
+        toast({ title: 'Error', description: error.error, variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to create appointment', variant: 'destructive' });
+    }
+    setIsSubmitting(false);
+    setPendingAppointment(null);
+    setConflictInfo([]);
   };
 
   const handleDeleteAppointment = async (id: string) => {
@@ -361,6 +408,50 @@ export default function ReceptionView() {
           </div>
         )}
       </div>
+
+      {/* Appointment Conflict Dialog */}
+      <AlertDialog open={showConflictDialog} onOpenChange={setShowConflictDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-500" />
+              Time Conflict Detected
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p className="mb-3">The selected time slot overlaps with existing appointments:</p>
+                <div className="space-y-2 mb-3">
+                  {conflictInfo.map((c: any) => {
+                    const conflictPatient = patients.find(p => p.id === c.patientId);
+                    return (
+                      <div key={c.id} className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
+                        <p className="font-medium text-amber-800">
+                          {conflictPatient?.name || 'Unknown Patient'}
+                        </p>
+                        <p className="text-amber-600">
+                          {c.time} ({c.duration} min)
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-gray-600">Do you want to create this appointment anyway?</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { setShowConflictDialog(false); setPendingAppointment(null); setConflictInfo([]); }}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleForceCreateAppointment}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              Create Anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

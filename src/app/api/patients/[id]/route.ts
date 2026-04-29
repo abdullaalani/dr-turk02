@@ -1,11 +1,12 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { updatePatientSchema } from '@/lib/validations';
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const patient = await db.patient.findUnique({
-      where: { id },
+    const patient = await db.patient.findFirst({
+      where: { id, deletedAt: null },
       include: {
         procedures: { include: { procedure: true }, orderBy: { createdAt: 'desc' } },
         payments: { orderBy: { createdAt: 'desc' } },
@@ -28,9 +29,16 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id } = await params;
     const body = await request.json();
+    const result = updatePatientSchema.partial().safeParse(body);
+    if (!result.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: result.error.flatten().fieldErrors },
+        { status: 400 }
+      );
+    }
     const patient = await db.patient.update({
       where: { id },
-      data: body,
+      data: result.data,
       include: {
         procedures: { include: { procedure: true } },
         payments: true,
@@ -49,7 +57,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    await db.patient.delete({ where: { id } });
+    await db.patient.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
     return NextResponse.json({ message: 'Patient deleted' });
   } catch (error) {
     console.error('Delete patient error:', error);

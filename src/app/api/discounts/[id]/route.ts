@@ -1,13 +1,21 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { updateDiscountSchema } from '@/lib/validations';
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const body = await request.json();
+    const result = updateDiscountSchema.safeParse(body);
+    if (!result.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: result.error.flatten().fieldErrors },
+        { status: 400 }
+      );
+    }
     const discount = await db.discountSetting.update({
       where: { id },
-      data: body,
+      data: result.data,
     });
     return NextResponse.json(discount);
   } catch (error) {

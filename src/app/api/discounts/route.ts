@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { createDiscountSchema } from '@/lib/validations';
 
 export async function GET() {
   try {
@@ -13,21 +14,24 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { percentage, startDate, endDate, active } = body;
-
-    if (!percentage || !startDate || !endDate) {
-      return NextResponse.json({ error: 'All fields are required' }, { status: 400 });
+    const result = createDiscountSchema.safeParse(body);
+    if (!result.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: result.error.flatten().fieldErrors },
+        { status: 400 }
+      );
     }
+    const { percentage, startDate, endDate, active } = result.data;
 
     const discount = await db.discountSetting.create({
       data: {
-        percentage: parseFloat(percentage),
+        percentage,
         startDate,
         endDate,
-        active: active !== undefined ? active : true,
+        active,
       },
     });
     return NextResponse.json(discount, { status: 201 });

@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { createToothProcedureSchema } from '@/lib/validations';
 
 export async function GET(request: NextRequest) {
   try {
@@ -46,17 +47,20 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { patientId, toothNumber, toothType, customToothName, procedureId } = body;
-
-    if (!patientId || !toothNumber || !procedureId) {
-      return NextResponse.json({ error: 'Patient, tooth number, and procedure are required' }, { status: 400 });
+    const result = createToothProcedureSchema.safeParse(body);
+    if (!result.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: result.error.flatten().fieldErrors },
+        { status: 400 }
+      );
     }
+    const { patientId, toothNumber, toothType, customToothName, procedureId } = result.data;
 
     const toothProcedure = await db.toothProcedure.create({
       data: {
         patientId,
         toothNumber,
-        toothType: toothType || 'permanent',
+        toothType,
         customToothName,
         procedureId,
       },

@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Textarea } from '@/components/ui/textarea';
 import DentalChart from './dental-chart';
 import {
@@ -53,6 +54,10 @@ export default function ClinicView() {
   const [showLabExpenseDialog, setShowLabExpenseDialog] = useState(false);
   const [labExpenseDesc, setLabExpenseDesc] = useState('');
   const [labExpenseAmount, setLabExpenseAmount] = useState('');
+
+  // Patient delete confirmation state
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Procedure notes editing state
   const [editingNotesId, setEditingNotesId] = useState<string | null>(null);
@@ -344,6 +349,27 @@ export default function ClinicView() {
     }
   };
 
+  // Delete patient (soft delete with confirmation)
+  const handleDeletePatient = async () => {
+    if (!selectedPatient) return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/patients/${selectedPatient.id}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast({ title: 'Success', description: `${selectedPatient.name} has been removed` });
+        setSelectedPatientId(null);
+        await fetchPatients();
+        setShowDeleteDialog(false);
+      } else {
+        const err = await res.json();
+        toast({ title: 'Error', description: err.error || 'Failed to delete patient', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to delete patient', variant: 'destructive' });
+    }
+    setIsDeleting(false);
+  };
+
   // Image upload
   const handleImageUpload = async (file: File) => {
     if (!selectedPatient) return;
@@ -502,6 +528,16 @@ export default function ClinicView() {
             }).join(' + ')}</span>
           </div>
         )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-red-400 hover:text-red-600 hover:bg-red-50 gap-1"
+          onClick={() => setShowDeleteDialog(true)}
+          title="Remove patient"
+        >
+          <Trash2 className="w-4 h-4" />
+          <span className="hidden sm:inline text-xs">Remove</span>
+        </Button>
       </div>
 
       {/* Financial Summary */}
@@ -1114,6 +1150,61 @@ export default function ClinicView() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Patient Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="w-5 h-5" />
+              Remove Patient
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p className="mb-3">Are you sure you want to remove <strong>{selectedPatient.name}</strong>?</p>
+                <div className="bg-gray-50 rounded-lg p-3 space-y-2 text-sm mb-3">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Procedures:</span>
+                    <span className="font-medium">{selectedPatient.procedures?.length || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Appointments:</span>
+                    <span className="font-medium">{selectedPatient.appointments?.length || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Payments:</span>
+                    <span className="font-medium">{selectedPatient.payments?.length || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Lab Expenses:</span>
+                    <span className="font-medium">{selectedPatient.labExpenses?.length || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Images:</span>
+                    <span className="font-medium">{selectedPatient.images?.length || 0}</span>
+                  </div>
+                </div>
+                {remainder > 0 && (
+                  <p className="text-red-600 font-medium text-sm">
+                    Warning: This patient has an outstanding balance of ${remainder.toFixed(2)}.
+                  </p>
+                )}
+                <p className="text-gray-500 text-xs mt-2">The patient will be soft-deleted and hidden from the list. Data is preserved.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeletePatient}
+              disabled={isDeleting}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {isDeleting ? 'Removing...' : 'Remove Patient'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

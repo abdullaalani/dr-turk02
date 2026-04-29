@@ -68,6 +68,22 @@ export async function POST() {
     const procedures = await db.procedure.createMany({
       data: defaultProcedures,
     });
+
+    // Seed default admin user if none exists
+    const existingUsers = await db.user.count();
+    if (existingUsers === 0) {
+      const bcrypt = await import('bcryptjs');
+      const hashedPassword = await bcrypt.default.hash('admin123', 10);
+      await db.user.create({
+        data: {
+          name: 'Admin',
+          username: 'admin',
+          password: hashedPassword,
+          role: 'admin',
+        },
+      });
+    }
+
     return NextResponse.json({ message: 'Procedures seeded successfully', count: procedures.count });
   } catch (error) {
     console.error('Seed error:', error);
