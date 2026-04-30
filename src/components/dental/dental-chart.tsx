@@ -220,6 +220,8 @@ function ToothSVG({ shape, isUpper, state }: {
               fill={rootFill} stroke={strokeColor} strokeWidth={sw} />
           </g>
         );
+      default:
+        return null;
     }
   };
 
@@ -334,6 +336,8 @@ function ToothSVG({ shape, isUpper, state }: {
               fill={rootFill} stroke={strokeColor} strokeWidth={sw} />
           </g>
         );
+      default:
+        return null;
     }
   };
 
@@ -368,12 +372,12 @@ function ToothButton({
   const state = selected ? 'selected' : hasProcedures ? 'procedure' : 'normal';
 
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            onClick={onClick}
-            className={cn(
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={onClick}
+          aria-label={`Tooth ${number}: ${name}`}
+          className={cn(
               'relative flex flex-col items-center justify-center rounded-lg border-2 transition-all duration-200 cursor-pointer p-1',
               'hover:scale-110 hover:shadow-md active:scale-95',
               selected
@@ -402,7 +406,6 @@ function ToothButton({
           <p>{name}</p>
         </TooltipContent>
       </Tooltip>
-    </TooltipProvider>
   );
 }
 
@@ -422,6 +425,7 @@ export default function DentalChart({
 
   return (
     <div className="w-full">
+      <TooltipProvider>
       <div className="bg-white rounded-xl border border-gray-200 p-3 sm:p-5 shadow-sm">
         {/* Legend */}
         <div className="flex items-center justify-center gap-4 mb-3 text-[10px] text-gray-400">
@@ -524,6 +528,7 @@ export default function DentalChart({
           </div>
         </div>
       </div>
+      </TooltipProvider>
 
       {/* Selected teeth display */}
       {selectedTeeth.length > 0 && (
@@ -536,6 +541,7 @@ export default function DentalChart({
               #{num} {names[num]}
               <button
                 onClick={() => onToothSelect(num)}
+                aria-label={`Remove tooth ${num}`}
                 className="ml-0.5 hover:text-emerald-900 cursor-pointer"
               >
                 &times;

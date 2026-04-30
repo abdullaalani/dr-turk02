@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useCallback, useRef } from 'react';
-import { useAppStore, ToothProcedure, Procedure } from '@/lib/store';
+import React, { useState, useCallback, useRef, useMemo } from 'react';
+import { useAppStore, ToothProcedure, Procedure, Appointment, Payment, LabExpense, PatientImage } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -83,15 +83,11 @@ export default function ClinicView() {
 
   // Get scheduled patients from appointments — sorted by closest upcoming appointment
   const todayStr = new Date().toISOString().split('T')[0];
-  const scheduledPatients = appointments
-    .filter(a => a.status === 'scheduled' || a.status === 'in-progress')
-    .reduce((acc: any[], apt) => {
-      if (!acc.find(p => p.patientId === apt.patientId)) {
-        acc.push(apt);
-      }
-      return acc;
-    }, [])
-    .sort((a, b) => {
+  const scheduledPatients = useMemo(() => {
+    const seen = new Set<string>();
+    return appointments
+      .filter(a => (a.status === 'scheduled' || a.status === 'in-progress') && !seen.has(a.patientId) && seen.add(a.patientId))
+      .sort((a, b) => {
       // Sort by date first, then by time
       if (a.date !== b.date) {
         // Appointments today or future come first
@@ -100,8 +96,9 @@ export default function ClinicView() {
         if (aFuture !== bFuture) return aFuture - bFuture;
         return a.date.localeCompare(b.date);
       }
-      return a.time.localeCompare(b.time);
-    });
+        return a.time.localeCompare(b.time);
+      });
+  }, [appointments, todayStr]);
 
   // Sort all patients by closest upcoming appointment
   const patientNextAppointment: Record<string, { date: string; time: string } | null> = {};
@@ -139,8 +136,12 @@ export default function ClinicView() {
   });
   const labByCurrency: Record<string, number> = {};
   selectedPatient?.labExpenses?.forEach(e => {
-    // Lab expenses stored in the procedure's currency; we track by description pattern
-    labByCurrency['USD'] = (labByCurrency['USD'] || 0) + e.amount;
+    // Try to infer currency from linked procedure; default to USD
+    const tp = selectedPatient?.procedures?.find(tp =>
+      tp.notes?.includes(e.description)
+    );
+    const curr = tp?.procedure?.currency || 'USD';
+    labByCurrency[curr] = (labByCurrency[curr] || 0) + e.amount;
   });
   // For backward compat, also compute a single-currency total (assumes primary is USD for now)
   const totalFee = selectedPatient?.procedures?.reduce((sum, tp) => sum + tp.procedure.price, 0) || 0;
@@ -149,7 +150,7 @@ export default function ClinicView() {
   const remainder = totalFee - totalPaid;
 
   // Active discount
-  const now = new Date().toISOString().split('T')[0];
+  const now = useMemo(() => new Date().toISOString().split('T')[0], []);
   const activeDiscount = discounts.find(d => d.active && d.startDate <= now && d.endDate >= now);
   const discountedTotal = activeDiscount ? totalFee * (1 - activeDiscount.percentage / 100) : totalFee;
   const discountedRemainder = Math.max(0, discountedTotal - totalPaid);
@@ -196,8 +197,9 @@ export default function ClinicView() {
       // Find the selected procedure to check for lab cost
       const selectedProc = procedures.find(p => p.id === selectedProcedureId);
 
+      const failedTeeth: string[] = [];
       for (const tooth of teethToAdd) {
-        await fetch('/api/tooth-procedures', {
+        const tpRes = await fetch('/api/tooth-procedures', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -208,10 +210,14 @@ export default function ClinicView() {
             procedureId: selectedProcedureId,
           }),
         });
+        if (!tpRes.ok) {
+          failedTeeth.push(tooth);
+          continue;
+        }
 
         // Auto-create lab expense if the procedure has a lab cost
         if (selectedProc && (selectedProc.labCost || 0) > 0) {
-          await fetch('/api/lab-expenses', {
+          const labRes = await fetch('/api/lab-expenses', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -221,7 +227,13 @@ export default function ClinicView() {
               date: new Date().toISOString().split('T')[0],
             }),
           });
+          if (!labRes.ok) {
+            console.error('Failed to create lab expense for tooth', tooth);
+          }
         }
+      }
+      if (failedTeeth.length > 0) {
+        toast({ title: 'Warning', description: `Failed to add procedure for teeth: ${failedTeeth.join(', ')}`, variant: 'destructive' });
       }
 
       setSelectedTeeth([]);
@@ -239,9 +251,14 @@ export default function ClinicView() {
   // Delete procedure
   const handleDeleteProcedure = async (id: string) => {
     try {
-      await fetch(`/api/tooth-procedures/${id}`, { method: 'DELETE' });
-      await refreshPatient();
-      toast({ title: 'Success', description: 'Procedure removed' });
+      const res = await fetch(`/api/tooth-procedures/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        await refreshPatient();
+        toast({ title: 'Success', description: 'Procedure removed' });
+      } else {
+        const err = await res.json();
+        toast({ title: 'Error', description: err.error || 'Failed to remove procedure', variant: 'destructive' });
+      }
     } catch {
       toast({ title: 'Error', description: 'Failed to remove procedure', variant: 'destructive' });
     }
@@ -250,13 +267,18 @@ export default function ClinicView() {
   // Toggle procedure completed
   const handleToggleCompleted = async (tp: ToothProcedure) => {
     try {
-      await fetch(`/api/tooth-procedures/${tp.id}`, {
+      const res = await fetch(`/api/tooth-procedures/${tp.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ completed: !tp.completed }),
       });
-      await refreshPatient();
-      toast({ title: 'Success', description: tp.completed ? 'Procedure marked as pending' : 'Procedure marked as completed' });
+      if (res.ok) {
+        await refreshPatient();
+        toast({ title: 'Success', description: tp.completed ? 'Procedure marked as pending' : 'Procedure marked as completed' });
+      } else {
+        const err = await res.json();
+        toast({ title: 'Error', description: err.error || 'Failed to update procedure status', variant: 'destructive' });
+      }
     } catch {
       toast({ title: 'Error', description: 'Failed to update procedure status', variant: 'destructive' });
     }
@@ -265,14 +287,19 @@ export default function ClinicView() {
   // Save procedure notes
   const handleSaveNotes = async (tpId: string) => {
     try {
-      await fetch(`/api/tooth-procedures/${tpId}`, {
+      const res = await fetch(`/api/tooth-procedures/${tpId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes: editingNotesText }),
       });
-      setEditingNotesId(null);
-      await refreshPatient();
-      toast({ title: 'Success', description: 'Notes saved' });
+      if (res.ok) {
+        setEditingNotesId(null);
+        await refreshPatient();
+        toast({ title: 'Success', description: 'Notes saved' });
+      } else {
+        const err = await res.json();
+        toast({ title: 'Error', description: err.error || 'Failed to save notes', variant: 'destructive' });
+      }
     } catch {
       toast({ title: 'Error', description: 'Failed to save notes', variant: 'destructive' });
     }
@@ -281,18 +308,28 @@ export default function ClinicView() {
   // Add payment
   const handleAddPayment = async () => {
     if (!selectedPatient || !paymentAmount) return;
+    const parsedAmount = parseFloat(paymentAmount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      toast({ title: 'Error', description: 'Please enter a valid positive amount', variant: 'destructive' });
+      return;
+    }
     try {
-      await fetch('/api/payments', {
+      const res = await fetch('/api/payments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           patientId: selectedPatient.id,
-          amount: paymentAmount,
+          amount: parsedAmount,
           date: new Date().toISOString().split('T')[0],
           method: paymentMethod,
           note: paymentNote,
         }),
       });
+      if (!res.ok) {
+        const err = await res.json();
+        toast({ title: 'Error', description: err.error || 'Failed to record payment', variant: 'destructive' });
+        return;
+      }
       setPaymentAmount('');
       setPaymentNote('');
       setShowPaymentDialog(false);
@@ -306,9 +343,14 @@ export default function ClinicView() {
   // Delete payment
   const handleDeletePayment = async (id: string) => {
     try {
-      await fetch(`/api/payments/${id}`, { method: 'DELETE' });
-      await refreshPatient();
-      toast({ title: 'Success', description: 'Payment deleted' });
+      const res = await fetch(`/api/payments/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        await refreshPatient();
+        toast({ title: 'Success', description: 'Payment deleted' });
+      } else {
+        const err = await res.json();
+        toast({ title: 'Error', description: err.error || 'Failed to delete payment', variant: 'destructive' });
+      }
     } catch {
       toast({ title: 'Error', description: 'Failed to delete payment', variant: 'destructive' });
     }
@@ -317,17 +359,27 @@ export default function ClinicView() {
   // Add lab expense
   const handleAddLabExpense = async () => {
     if (!selectedPatient || !labExpenseDesc || !labExpenseAmount) return;
+    const parsedAmount = parseFloat(labExpenseAmount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      toast({ title: 'Error', description: 'Please enter a valid positive amount', variant: 'destructive' });
+      return;
+    }
     try {
-      await fetch('/api/lab-expenses', {
+      const res = await fetch('/api/lab-expenses', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           patientId: selectedPatient.id,
           description: labExpenseDesc,
-          amount: labExpenseAmount,
+          amount: parsedAmount,
           date: new Date().toISOString().split('T')[0],
         }),
       });
+      if (!res.ok) {
+        const err = await res.json();
+        toast({ title: 'Error', description: err.error || 'Failed to add lab expense', variant: 'destructive' });
+        return;
+      }
       setLabExpenseDesc('');
       setLabExpenseAmount('');
       setShowLabExpenseDialog(false);
@@ -341,9 +393,14 @@ export default function ClinicView() {
   // Delete lab expense
   const handleDeleteLabExpense = async (id: string) => {
     try {
-      await fetch(`/api/lab-expenses/${id}`, { method: 'DELETE' });
-      await refreshPatient();
-      toast({ title: 'Success', description: 'Lab expense deleted' });
+      const res = await fetch(`/api/lab-expenses/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        await refreshPatient();
+        toast({ title: 'Success', description: 'Lab expense deleted' });
+      } else {
+        const err = await res.json();
+        toast({ title: 'Error', description: err.error || 'Failed to delete lab expense', variant: 'destructive' });
+      }
     } catch {
       toast({ title: 'Error', description: 'Failed to delete lab expense', variant: 'destructive' });
     }
@@ -378,9 +435,14 @@ export default function ClinicView() {
     formData.append('patientId', selectedPatient.id);
     formData.append('imageType', 'panoramic');
     try {
-      await fetch('/api/upload', { method: 'POST', body: formData });
-      await refreshPatient();
-      toast({ title: 'Success', description: 'Image uploaded' });
+      const res = await fetch('/api/upload', { method: 'POST', body: formData });
+      if (res.ok) {
+        await refreshPatient();
+        toast({ title: 'Success', description: 'Image uploaded' });
+      } else {
+        const err = await res.json();
+        toast({ title: 'Error', description: err.error || 'Failed to upload image', variant: 'destructive' });
+      }
     } catch {
       toast({ title: 'Error', description: 'Failed to upload image', variant: 'destructive' });
     }
@@ -403,11 +465,11 @@ export default function ClinicView() {
   };
 
   // Group procedures by category
-  const proceduresByCategory = procedures.reduce((acc, proc) => {
+  const proceduresByCategory = useMemo(() => procedures.reduce((acc, proc) => {
     if (!acc[proc.category]) acc[proc.category] = [];
     acc[proc.category].push(proc);
     return acc;
-  }, {} as Record<string, Procedure[]>);
+  }, {} as Record<string, Procedure[]>), [procedures]);
 
   // If no patient selected, show patient selection
   if (!selectedPatient) {
@@ -428,7 +490,7 @@ export default function ClinicView() {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {scheduledPatients.map((apt: any) => (
+                {scheduledPatients.map((apt: Appointment) => (
                   <button
                     key={apt.id}
                     onClick={() => setSelectedPatientId(apt.patientId)}
@@ -522,10 +584,7 @@ export default function ClinicView() {
         {remainder > 0 && (
           <div className="flex items-center gap-2 px-4 py-2 bg-red-50 border border-red-200 rounded-lg">
             <AlertTriangle className="w-5 h-5 text-red-500" />
-            <span className="font-bold text-red-600">Balance Due: {Object.entries(feeByCurrency).map(([curr, fee]) => {
-              const paid = totalPaid; // simplified
-              return fmtPrice(fee, curr);
-            }).join(' + ')}</span>
+            <span className="font-bold text-red-600">Balance Due: {fmtPrice(remainder)}</span>
           </div>
         )}
         <Button
@@ -545,25 +604,25 @@ export default function ClinicView() {
         <Card className="bg-gray-50 border-gray-200">
           <CardContent className="p-4 text-center">
             <p className="text-xs text-gray-500 mb-1">Total Fee</p>
-            <p className="text-xl font-bold text-gray-900">${totalFee.toFixed(2)}</p>
+            <p className="text-xl font-bold text-gray-900">{fmtPrice(totalFee)}</p>
           </CardContent>
         </Card>
         <Card className="bg-emerald-50 border-emerald-200">
           <CardContent className="p-4 text-center">
             <p className="text-xs text-emerald-600 mb-1">Paid</p>
-            <p className="text-xl font-bold text-emerald-700">${totalPaid.toFixed(2)}</p>
+            <p className="text-xl font-bold text-emerald-700">{fmtPrice(totalPaid)}</p>
           </CardContent>
         </Card>
         <Card className={remainder > 0 ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-200"}>
           <CardContent className="p-4 text-center">
             <p className={remainder > 0 ? "text-xs text-red-600 mb-1" : "text-xs text-gray-500 mb-1"}>Remainder</p>
-            <p className={remainder > 0 ? "text-xl font-bold text-red-600" : "text-xl font-bold text-gray-900"}>${remainder.toFixed(2)}</p>
+            <p className={remainder > 0 ? "text-xl font-bold text-red-600" : "text-xl font-bold text-gray-900"}>{fmtPrice(remainder)}</p>
           </CardContent>
         </Card>
         <Card className="bg-purple-50 border-purple-200">
           <CardContent className="p-4 text-center">
             <p className="text-xs text-purple-600 mb-1">Lab Expenses</p>
-            <p className="text-xl font-bold text-purple-700">${totalLabExpenses.toFixed(2)}</p>
+            <p className="text-xl font-bold text-purple-700">{fmtPrice(totalLabExpenses)}</p>
           </CardContent>
         </Card>
         <Card className={activeDiscount ? "bg-amber-50 border-amber-200" : "bg-gray-50 border-gray-200"}>
@@ -572,14 +631,14 @@ export default function ClinicView() {
               {activeDiscount ? `With ${activeDiscount.percentage}% Discount` : 'After Discount'}
             </p>
             <p className={activeDiscount ? "text-xl font-bold text-amber-700" : "text-xl font-bold text-gray-900"}>
-              ${discountedRemainder.toFixed(2)}
+              {fmtPrice(discountedRemainder)}
             </p>
           </CardContent>
         </Card>
         <Card className="bg-blue-50 border-blue-200">
           <CardContent className="p-4 text-center">
             <p className="text-xs text-blue-600 mb-1">Net Profit</p>
-            <p className="text-xl font-bold text-blue-700">${(totalFee - totalLabExpenses).toFixed(2)}</p>
+            <p className="text-xl font-bold text-blue-700">{fmtPrice(totalPaid - totalLabExpenses)}</p>
           </CardContent>
         </Card>
       </div>

@@ -2,7 +2,6 @@
 
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 
 // ===================== STYLE 1: Anatomical SVG Outlines =====================
 // Each tooth type has a realistic shape: incisors are flat/edge, canines are pointed, premolars have one cusp, molars have multiple cusps

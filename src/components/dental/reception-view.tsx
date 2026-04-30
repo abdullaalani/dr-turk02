@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useAppStore } from '@/lib/store';
+import React, { useState, useMemo } from 'react';
+import { useAppStore, Appointment as AppointmentType } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,8 +36,8 @@ export default function ReceptionView() {
 
   // Appointment conflict dialog state
   const [showConflictDialog, setShowConflictDialog] = useState(false);
-  const [conflictInfo, setConflictInfo] = useState<any[]>([]);
-  const [pendingAppointment, setPendingAppointment] = useState<any>(null);
+  const [conflictInfo, setConflictInfo] = useState<Array<{ id: string; time: string; duration: number; patientId: string }>>([]);
+  const [pendingAppointment, setPendingAppointment] = useState<{ patientId: string; date: string; time: string; duration: number; notes: string } | null>(null);
 
   const handleCreatePatient = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,6 +134,9 @@ export default function ReceptionView() {
       if (res.ok) {
         removeAppointment(id);
         toast({ title: 'Success', description: 'Appointment deleted' });
+      } else {
+        const err = await res.json();
+        toast({ title: 'Error', description: err.error || 'Failed to delete appointment', variant: 'destructive' });
       }
     } catch {
       toast({ title: 'Error', description: 'Failed to delete appointment', variant: 'destructive' });
@@ -169,10 +172,10 @@ export default function ReceptionView() {
     cancelled: 'bg-red-100 text-red-700 border-red-200',
   };
 
-  const today = new Date().toISOString().split('T')[0];
-  const todayAppointments = appointments.filter(a => a.date === today);
-  const upcomingAppointments = appointments.filter(a => a.date > today);
-  const pastAppointments = appointments.filter(a => a.date < today);
+  const today = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const todayAppointments = useMemo(() => appointments.filter(a => a.date === today), [appointments, today]);
+  const upcomingAppointments = useMemo(() => appointments.filter(a => a.date > today), [appointments, today]);
+  const pastAppointments = useMemo(() => appointments.filter(a => a.date < today), [appointments, today]);
 
   return (
     <div className="space-y-6">
@@ -421,7 +424,7 @@ export default function ReceptionView() {
               <div>
                 <p className="mb-3">The selected time slot overlaps with existing appointments:</p>
                 <div className="space-y-2 mb-3">
-                  {conflictInfo.map((c: any) => {
+                  {conflictInfo.map((c) => {
                     const conflictPatient = patients.find(p => p.id === c.patientId);
                     return (
                       <div key={c.id} className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
@@ -463,7 +466,7 @@ function AppointmentCard({
   onGoToPatient,
   statusColors,
 }: { 
-  appointment: any;
+  appointment: AppointmentType;
   onDelete: (id: string) => void;
   onUpdateStatus: (id: string, status: string) => void;
   onGoToPatient: (patientId: string) => void;

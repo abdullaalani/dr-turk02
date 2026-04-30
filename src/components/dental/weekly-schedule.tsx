@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import {
   ChevronLeft, ChevronRight, Plus, X, Clock, User,
   Calendar, Trash2, Stethoscope, Search, Timer, AlertTriangle
@@ -236,10 +237,12 @@ export default function WeeklySchedule() {
               body: JSON.stringify({ status: 'cancelled' }),
             });
           }
+          // Refresh appointments after cancelling conflicts to avoid stale 409
+          await useAppStore.getState().fetchAppointments();
           const retryRes = await fetch('/api/appointments', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ patientId: selectedPatient.id, date: selectedSlot.date, time: selectedSlot.time, duration: selectedDuration, notes: appointmentNotes }),
+            body: JSON.stringify({ patientId: selectedPatient.id, date: selectedSlot.date, time: selectedSlot.time, duration: selectedDuration, notes: appointmentNotes, forceCreate: true }),
           });
           if (retryRes.ok) {
             const apt = await retryRes.json();
@@ -706,53 +709,45 @@ export default function WeeklySchedule() {
       </Dialog>
 
       {/* Conflict Warning Dialog */}
-      {conflictDialog.open && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
-          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm mx-4">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
-                <AlertTriangle className="w-6 h-6 text-amber-600" />
-              </div>
-              <div>
-                <h3 className="font-bold text-gray-900 text-lg">Scheduling Conflict</h3>
-                <p className="text-sm text-gray-500">This time slot overlaps with existing appointments</p>
-              </div>
-            </div>
-            <div className="space-y-2 mb-4">
-              {conflictDialog.conflicts.map((c) => {
-                const conflictPatient = patients.find(p => p.id === c.patientId);
-                const conflictEndMins = timeToMinutes(c.time) + (c.duration || 30);
-                return (
-                  <div key={c.id} className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-sm">
-                    <Clock className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                    <span className="text-amber-800">
-                      {conflictPatient?.name || 'Unknown'} &mdash; {c.time} ({c.duration} min)
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-            <p className="text-xs text-gray-500 mb-4">
-              You can book anyway (existing appointments will be cancelled) or choose a different time.
-            </p>
-            <div className="flex gap-2">
-              <Button
-                onClick={() => handleCreateAppointment(true)}
-                disabled={isSubmitting}
-                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white gap-2"
-              >
-                {isSubmitting ? 'Booking...' : 'Book Anyway'}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setConflictDialog({ open: false, conflicts: [], pendingData: null })}
-              >
-                Choose Different Time
-              </Button>
-            </div>
+      <AlertDialog open={conflictDialog.open} onOpenChange={(open) => { if (!open) setConflictDialog({ open: false, conflicts: [], pendingData: null }); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-500" />
+              Scheduling Conflict
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This time slot overlaps with existing appointments
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2 my-2">
+            {conflictDialog.conflicts.map((c) => {
+              const conflictPatient = patients.find(p => p.id === c.patientId);
+              return (
+                <div key={c.id} className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+                  <Clock className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                  <span className="text-amber-800">
+                    {conflictPatient?.name || 'Unknown'} &mdash; {c.time} ({c.duration} min)
+                  </span>
+                </div>
+              );
+            })}
           </div>
-        </div>
-      )}
+          <p className="text-xs text-gray-500">
+            You can book anyway (existing appointments will be cancelled) or choose a different time.
+          </p>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Choose Different Time</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => handleCreateAppointment(true)}
+              disabled={isSubmitting}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              {isSubmitting ? 'Booking...' : 'Book Anyway'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

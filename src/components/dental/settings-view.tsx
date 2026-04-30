@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useAppStore, Procedure, DiscountSetting } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -63,18 +63,28 @@ export default function SettingsView({ tabPasswords, onPasswordsChange }: Settin
   const [passwordError, setPasswordError] = useState('');
 
   // Group procedures by category
-  const proceduresByCategory = procedures.reduce((acc, proc) => {
+  const proceduresByCategory = useMemo(() => procedures.reduce((acc, proc) => {
     if (!acc[proc.category]) acc[proc.category] = [];
     acc[proc.category].push(proc);
     return acc;
-  }, {} as Record<string, Procedure[]>);
+  }, {} as Record<string, Procedure[]>), [procedures]);
 
   const handleUpdateProcedure = async (id: string) => {
     if (!editPrice) return;
+    const parsedPrice = parseFloat(editPrice);
+    const parsedLabCost = editLabCost !== '' ? parseFloat(editLabCost) : undefined;
+    if (isNaN(parsedPrice) || parsedPrice < 0) {
+      toast({ title: 'Error', description: 'Invalid price value', variant: 'destructive' });
+      return;
+    }
+    if (parsedLabCost !== undefined && (isNaN(parsedLabCost) || parsedLabCost < 0)) {
+      toast({ title: 'Error', description: 'Invalid lab cost value', variant: 'destructive' });
+      return;
+    }
     try {
-      const updateData: any = { price: parseFloat(editPrice), currency: editCurrency };
-      if (editLabCost !== '') {
-        updateData.labCost = parseFloat(editLabCost);
+      const updateData: { price: number; currency: string; labCost?: number } = { price: parsedPrice, currency: editCurrency };
+      if (parsedLabCost !== undefined) {
+        updateData.labCost = parsedLabCost;
       }
       const res = await fetch(`/api/procedures/${id}`, {
         method: 'PUT',
@@ -88,6 +98,9 @@ export default function SettingsView({ tabPasswords, onPasswordsChange }: Settin
         setEditLabCost('');
         setEditCurrency('USD');
         toast({ title: 'Success', description: 'Procedure updated' });
+      } else {
+        const err = await res.json();
+        toast({ title: 'Error', description: err.error || 'Failed to update procedure', variant: 'destructive' });
       }
     } catch {
       toast({ title: 'Error', description: 'Failed to update procedure', variant: 'destructive' });
@@ -100,6 +113,9 @@ export default function SettingsView({ tabPasswords, onPasswordsChange }: Settin
       if (res.ok) {
         await fetchProcedures();
         toast({ title: 'Success', description: 'Procedure deleted' });
+      } else {
+        const err = await res.json();
+        toast({ title: 'Error', description: err.error || 'Failed to delete procedure', variant: 'destructive' });
       }
     } catch {
       toast({ title: 'Error', description: 'Failed to delete procedure', variant: 'destructive' });
@@ -111,17 +127,33 @@ export default function SettingsView({ tabPasswords, onPasswordsChange }: Settin
       toast({ title: 'Error', description: 'All fields are required', variant: 'destructive' });
       return;
     }
+    const parsedPercentage = parseFloat(discountForm.percentage);
+    if (isNaN(parsedPercentage) || parsedPercentage < 1 || parsedPercentage > 100) {
+      toast({ title: 'Error', description: 'Percentage must be between 1 and 100', variant: 'destructive' });
+      return;
+    }
+    if (discountForm.endDate < discountForm.startDate) {
+      toast({ title: 'Error', description: 'End date must be on or after start date', variant: 'destructive' });
+      return;
+    }
     setIsAddingDiscount(true);
     try {
       const res = await fetch('/api/discounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(discountForm),
+        body: JSON.stringify({
+        ...discountForm,
+        percentage: parsedPercentage,
+        active: true,
+      }),
       });
       if (res.ok) {
         await fetchDiscounts();
         setDiscountForm({ percentage: '', startDate: '', endDate: '' });
         toast({ title: 'Success', description: 'Discount period created' });
+      } else {
+        const err = await res.json();
+        toast({ title: 'Error', description: err.error || 'Failed to create discount', variant: 'destructive' });
       }
     } catch {
       toast({ title: 'Error', description: 'Failed to create discount', variant: 'destructive' });
@@ -131,13 +163,18 @@ export default function SettingsView({ tabPasswords, onPasswordsChange }: Settin
 
   const handleToggleDiscount = async (discount: DiscountSetting) => {
     try {
-      await fetch(`/api/discounts/${discount.id}`, {
+      const res = await fetch(`/api/discounts/${discount.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ active: !discount.active }),
       });
-      await fetchDiscounts();
-      toast({ title: 'Success', description: `Discount ${!discount.active ? 'activated' : 'deactivated'}` });
+      if (res.ok) {
+        await fetchDiscounts();
+        toast({ title: 'Success', description: `Discount ${!discount.active ? 'activated' : 'deactivated'}` });
+      } else {
+        const err = await res.json();
+        toast({ title: 'Error', description: err.error || 'Failed to update discount', variant: 'destructive' });
+      }
     } catch {
       toast({ title: 'Error', description: 'Failed to update discount', variant: 'destructive' });
     }
@@ -145,9 +182,14 @@ export default function SettingsView({ tabPasswords, onPasswordsChange }: Settin
 
   const handleDeleteDiscount = async (id: string) => {
     try {
-      await fetch(`/api/discounts/${id}`, { method: 'DELETE' });
-      await fetchDiscounts();
-      toast({ title: 'Success', description: 'Discount deleted' });
+      const res = await fetch(`/api/discounts/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        await fetchDiscounts();
+        toast({ title: 'Success', description: 'Discount deleted' });
+      } else {
+        const err = await res.json();
+        toast({ title: 'Error', description: err.error || 'Failed to delete discount', variant: 'destructive' });
+      }
     } catch {
       toast({ title: 'Error', description: 'Failed to delete discount', variant: 'destructive' });
     }
@@ -155,7 +197,7 @@ export default function SettingsView({ tabPasswords, onPasswordsChange }: Settin
 
   const now = new Date().toISOString().split('T')[0];
 
-  const handleSetPassword = (tab: LockableTab) => {
+  const handleSetPassword = async (tab: LockableTab) => {
     if (!newPassword) {
       setPasswordError('Password cannot be empty');
       return;
@@ -168,7 +210,13 @@ export default function SettingsView({ tabPasswords, onPasswordsChange }: Settin
       setPasswordError('Passwords do not match');
       return;
     }
-    const updated = { ...tabPasswords, [tab]: newPassword };
+    // Hash password before storing
+    const encoder = new TextEncoder();
+    const data = encoder.encode(newPassword + 'dr-turk-salt-2024');
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashed = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    const updated = { ...tabPasswords, [tab]: hashed };
     onPasswordsChange(updated);
     setPasswordTab(null);
     setNewPassword('');

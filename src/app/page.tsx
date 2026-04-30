@@ -36,6 +36,15 @@ function saveStoredPasswords(pw: Record<LockableTab, string | null>) {
   localStorage.setItem('tab-passwords', JSON.stringify(pw));
 }
 
+// Simple hash for client-side password storage (not cryptographic, but better than plaintext)
+async function hashPassword(password: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password + 'dr-turk-salt-2024');
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 function getUnlockedTabs(): Set<LockableTab> {
   if (typeof window === 'undefined') return new Set();
   try {
@@ -109,20 +118,24 @@ export default function Home() {
     }
   };
 
-  const handlePasswordSubmit = () => {
+  const handlePasswordSubmit = async () => {
     if (!pendingTab) return;
     const correctPw = tabPasswords[pendingTab];
-    if (passwordInput === correctPw) {
-      const newUnlocked = new Set(unlockedTabs);
-      newUnlocked.add(pendingTab);
-      setUnlockedTabs(newUnlocked);
-      saveUnlockedTabs(newUnlocked);
-      setActiveTab(pendingTab);
-      setPendingTab(null);
-      setPasswordInput('');
-      setPasswordError('');
-    } else {
-      setPasswordError('Incorrect password');
+    if (correctPw) {
+      // Stored passwords are hashed — hash the input and compare
+      const inputHash = await hashPassword(passwordInput);
+      if (inputHash === correctPw) {
+        const newUnlocked = new Set(unlockedTabs);
+        newUnlocked.add(pendingTab);
+        setUnlockedTabs(newUnlocked);
+        saveUnlockedTabs(newUnlocked);
+        setActiveTab(pendingTab);
+        setPendingTab(null);
+        setPasswordInput('');
+        setPasswordError('');
+      } else {
+        setPasswordError('Incorrect password');
+      }
     }
   };
 
